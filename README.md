@@ -1,4 +1,4 @@
-This is a small ad-hoc search engine indexed with Lucene. 
+This is an ad-hoc search engine indexed with Lucene. 
 
 ##System Overview:
 A single retrieval is a loop over a set of queries.
