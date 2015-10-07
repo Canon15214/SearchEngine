@@ -51,4 +51,13 @@ public class QryIopTerm extends QryIop {
   public String toString(){
     return (this.term + "." + this.field);
   }
+  
+  /*
+   * QryIopTerm does not have any arguments nor display name.
+   * Thus, redefine the computation of its hashcode.
+   */
+  @Override
+  public int hashCode(){
+	  return term.hashCode()+field.hashCode();
+  }
 }

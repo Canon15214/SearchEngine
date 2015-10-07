@@ -24,6 +24,7 @@ public class QrySopOr extends QrySop {
    *  @return The document score.
    *  @throws IOException Error accessing the Lucene index
    */
+  @Override
   public double getScore (RetrievalModel r) throws IOException {
 
     if (r instanceof RetrievalModelUnrankedBoolean) {
@@ -31,6 +32,9 @@ public class QrySopOr extends QrySop {
     } 
     else if (r instanceof RetrievalModelRankedBoolean) {
         return this.getScoreRankedBoolean (r);
+    } 
+    else if (r instanceof RetrievalModelIndri) {
+        return this.getScoreIndri (r);
     } 
     else {
       throw new IllegalArgumentException
@@ -71,5 +75,57 @@ public class QrySopOr extends QrySop {
 		}
     }
     return score;
+  }
+
+  /**
+   *  Support for Indri best match model. Call this method when the document 
+   *  does not have a Indri OR match(not any query term appears in the document).
+   *  Must pass the docid since it can be fetched from invlist now.
+   *  @param r A retrieval model that guides initialization
+   *  @param docid The specific doc id associated with the score
+   *  @throws IOException Error accessing the Lucene index.
+   */
+  @Override
+  public double getDefaultScore (RetrievalModel r,int docId) throws IOException {
+		if (r instanceof RetrievalModelIndri){
+			double score = 1.0;
+			//Default score assume the document has no any term match for the query
+			//Call getDefaultScore method for every arguments.
+			for(Qry arg : this.args){
+				score *= 1.0 - ((QrySop) arg).getDefaultScore(r, docId);
+			}
+			return 1.0 - score;
+		} else {
+			throw new IllegalArgumentException
+			("No support for Default Score in " + r.getClass().getName());
+		}
+  }
+
+  /**
+   *  getScore for the Indri retrieval model.
+   *  @param r The retrieval model that determines how scores are calculated.
+   *  @return The document score.
+   *  @throws IOException Error accessing the Lucene index
+   */
+  private double getScoreIndri (RetrievalModel r) throws IOException {
+	    if (this.docIteratorHasMatchCache()) {
+			double score = 1.0;
+	    	int docId = this.docIteratorGetMatch();
+	    	//If the ith query argument contains document d
+    		//Then read its score from the ith score list
+    		//Else call the ith query argument's getDefaultScore method
+	    	for(Qry arg : this.args){
+	    		if(arg.docIteratorHasMatch(r) && arg.docIteratorGetMatch() == docId){
+	    			score *= 1.0 - ((QrySop) arg).getScore(r);
+	    		} else {
+	    			score *= 1.0 - ((QrySop) arg).getDefaultScore(r, docId);
+	    		}
+			}
+	    	return 1.0 - score;
+	    } else {
+			throw new IllegalArgumentException
+			("No support for Indri Score in " + r.getClass().getName());
+		}
+	  
   }
 }

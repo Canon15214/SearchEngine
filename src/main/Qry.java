@@ -90,6 +90,12 @@ public abstract class Qry {
    *  one name (e.g., #COMBINE, #AND).
    */
   private String displayName = new String ("Unnamed");
+  
+  /**
+   *  The term frequency in a query that the query operator applies to; 
+   *  initialized to 1 but will be modified when the query operator is a arg of #SUM.
+   */
+  protected int qtf = 1;
 
   /**
    *  docIteratorHasMatch caches the matching docid so that
@@ -396,6 +402,15 @@ public abstract class Qry {
   public String getDisplayName () {
     return this.displayName;
   }
+  
+  /**
+   *  Every operator has a qtf that can be used as
+   *  statistical information. 
+   *  @return The query operator's qtf
+   */
+  public int getQtf(){
+	  return this.qtf;
+  }
 
   /**
    *  Initialize the query operator (and its arguments), including any
@@ -424,13 +439,23 @@ public abstract class Qry {
   }
 
   /**
+   *  Every operator must have a display name that can be used as
+   *  statistical information. 
+   *  @param name The query operator's qtf
+   */
+  public void setQtf (int qtf) {
+    this.qtf = qtf;
+  }
+  
+  /**
    *  Get a string version of this query operator.  This is a generic
    *  method that works for most query operators.  However, some query
    *  operators (e.g., #NEAR/n or #WEIGHT) may need to override this
    *  method with something more specific.
    *  @return The string version of this query operator.
    */
-  @Override public String toString(){
+  @Override
+  public String toString(){
     
     String result = new String ();
 
@@ -440,4 +465,27 @@ public abstract class Qry {
     return (this.displayName + "( " + result + ")");
   }
 
+  /*
+   * Used in HashMap.
+   */
+  @Override
+   public int hashCode(){
+       int hash = getDisplayName().hashCode();
+       for(Qry arg : args){
+    	   hash += arg.hashCode();
+       }
+       return hash;
+   }
+  
+  /*
+   * Define what identical Qrys are. Used to count qtf.
+   */
+  @Override
+  public boolean equals(Object obj){
+	  if (obj == null) 
+		  return false;
+	  else if(!(obj instanceof Qry))   
+    	  return false; 
+	  else return this.toString().equals(obj.toString());
+  }
 }

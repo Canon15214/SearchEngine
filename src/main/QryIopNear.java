@@ -88,4 +88,16 @@ public class QryIopNear extends QryIop {
 	//tmp.clear();
 	return locations;
   }
+  
+  /*
+   * Take the distance into account as well as the name and args.
+   */
+  @Override
+  public int hashCode(){
+      int hash = getDisplayName().hashCode();
+      for(Qry arg : args){
+   	   hash += arg.hashCode();
+      }
+      return hash+dist;
+  }
 }

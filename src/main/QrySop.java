@@ -15,15 +15,6 @@ import java.io.*;
 public abstract class QrySop extends Qry {
 
   /**
-   *  Get a score for the document that docIteratorHasMatch matched.
-   *  @param r The retrieval model that determines how scores are calculated.
-   *  @return The document score.
-   *  @throws IOException Error accessing the Lucene index
-   */
-  public abstract double getScore (RetrievalModel r)
-    throws IOException;
-
-  /**
    *  Initialize the query operator (and its arguments), including any
    *  internal iterators.  If the query operator is of type QryIop, it
    *  is fully evaluated, and the results are stored in an internal
@@ -36,4 +27,22 @@ public abstract class QrySop extends Qry {
       q_i.initialize (r);
     }
   }
+  
+  /**
+   *  Get score for the doc that docIteratorHasMatch matched.
+   *  @param r The retrieval model that determines how scores are calculated.
+   *  @return The document score.
+   *  @throws IOException Error accessing the Lucene index
+   */
+  public abstract double getScore (RetrievalModel r)
+    throws IOException;
+  
+  /**
+   *  Support for Indri best match model. Call this method in a all the subclasses of QrySop
+   *  when the document does not have a match.
+   *  @param r A retrieval model that guides initialization
+   *  @param docid The specific doc id associated with the score
+   *  @throws IOException Error accessing the Lucene index.
+   */
+  public abstract double getDefaultScore(RetrievalModel r, int docid) throws IOException;
 }

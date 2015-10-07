@@ -128,6 +128,17 @@ public class QryEval {
     else if (modelString.equals("rankedboolean")){
     	model = new RetrievalModelRankedBoolean();
     }
+    else if (modelString.equals("bm25")) {
+		double k_1 = Double.parseDouble(parameters.get("BM25:k_1"));
+		double k_3 = Double.parseDouble(parameters.get("BM25:k_3"));
+		double b = Double.parseDouble(parameters.get("BM25:b"));
+		model = new RetrievalModelBM25(k_1, b, k_3);
+	}
+    else if (modelString.equals("indri")) {
+		double mu = Double.parseDouble(parameters.get("Indri:mu"));
+		double lambda = Double.parseDouble(parameters.get("Indri:lambda"));
+		model = new RetrievalModelIndri(mu, lambda);
+	}
     else {
       throw new IllegalArgumentException
         ("Unknown retrieval model " + parameters.get("retrievalAlgorithm"));
@@ -205,7 +216,11 @@ public class QryEval {
         currentOp = new QrySopAnd ();
         currentOp.setDisplayName (token);
         opStack.push(currentOp);
-      } else if (token.toLowerCase().startsWith("#near")) {
+      } else if (token.equalsIgnoreCase("#sum")) {
+			currentOp = new QrySopSum ();
+			currentOp.setDisplayName (token);
+			opStack.push(currentOp);
+	  } else if (token.toLowerCase().startsWith("#near")) {
     	  if(Pattern.matches("#near/[1-9][0-9]*", token.toLowerCase())){
     		  String[] nearOp = token.split("/");
 			  int dist = Integer.parseInt(nearOp[1]);
@@ -307,14 +322,14 @@ public class QryEval {
 	    q.args.set(i, q_i_0);
 	    queryChanged = true;
 	  }
-	} else
+	} else 
 
 	  // Check the subtree.
 	  
 	  if (parseQueryCleanup (q_i))
 	    queryChanged = true;
     }
-
+    
     return queryChanged;
   }
 
@@ -361,6 +376,29 @@ public class QryEval {
       }
     }
 
+    //Query optimization by reduce duplicate arguments.
+    //Could be more generalized in terms of retrieval model and QrySop...
+    //Will update later.
+    if(q instanceof QrySopSum){
+    	Map<Qry,Integer> truncArgs = new HashMap<Qry,Integer>();
+    	//truncate duplicate arguments of SUM and modify the responding qtf.
+    	for (int i = 0; i < q.args.size(); i++){
+    		Qry q_i = q.args.get(i);
+    		//Only consider "terms" aka QryIops
+    		if(!(q_i instanceof QrySopScore))
+    			continue;
+    		Qry q_iop = q_i.args.get(0);
+    		if(!truncArgs.containsKey(q_iop)){
+    			truncArgs.put(q_iop, i);
+    		} else {
+    			int j = truncArgs.get(q_iop);
+    			Qry qj = q.args.get(j);
+    			qj.setQtf(qj.getQtf()+1);
+    			q.args.remove(i);
+    		}
+    	}
+    }
+    
     while ((q != null) && parseQueryCleanup(q))
       ;
 

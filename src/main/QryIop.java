@@ -46,7 +46,7 @@ public abstract class QryIop extends Qry {
    *  inferred from query operator arguments.
    */
   protected String field = null;
-
+  
   /**
    *  The inverted list that is produced when the query operator is
    *  initialized; use the docIterator to access this list.
