@@ -61,6 +61,8 @@ public class QryEval {
   private static final String[] TEXT_FIELDS =
     { "body", "title", "url", "inlink" };
   private static String output;
+  private static Map<String, String> parameters;
+  private static Map<String, ScoreList> fbDocs = new HashMap<String, ScoreList>();
 
 
   //  --------------- Methods ---------------------------------------
@@ -87,7 +89,7 @@ public class QryEval {
       throw new IllegalArgumentException (USAGE);
     }
 
-    Map<String, String> parameters = readParameterFile (args[0]);
+    parameters = readParameterFile (args[0]);
 
     //  Configure query lexical processing to match index lexical
     //  processing.  Initialize the index and retrieval model.
@@ -100,9 +102,24 @@ public class QryEval {
     RetrievalModel model = initializeRetrievalModel (parameters);
     output = parameters.get("trecEvalOutputPath");
 
-    //  Perform experiments.
+    //  Perform experiments.   
     
-    processQueryFile(parameters.get("queryFilePath"), model);
+    String queryFilePath = parameters.get("queryFilePath");
+    if(parameters.containsKey("fb") && parameters.get("fb").equals("true")){
+  	  int numFbDocs = Integer.parseInt(parameters.get("fbDocs"));
+  	  int fbTerms = Integer.parseInt(parameters.get("fbTerms"));
+  	  double fbMu = Double.parseDouble(parameters.get("fbMu"));
+  	  double fbOrigWeight = Double.parseDouble(parameters.get("fbOrigWeight"));
+  	  String fbExpanQueryFile = parameters.get("fbExpansionQueryFile");
+  	  String fbInitialRankingFile = null;
+  	  if(parameters.containsKey("fbInitialRankingFile"))
+  		  fbInitialRankingFile = parameters.get("fbInitialRankingFile");
+  	  else 
+  		 processQueryFile(queryFilePath, model, true);
+  	  QueryExpander.getQueryExpansion(fbDocs, queryFilePath, fbInitialRankingFile, numFbDocs, fbTerms, fbMu, fbOrigWeight, fbExpanQueryFile);
+    }
+    
+    processQueryFile(queryFilePath, model, false);
 
     //  Clean up.
     
@@ -207,6 +224,21 @@ public class QryEval {
         Qry arg = currentOp;
         currentOp = opStack.peek();
         currentOp.appendArg(arg);
+        
+        //If a Weighted Op reaches its end, set the weight flag false.
+        //EX. #or(#wand(0.3 apple 0.7 iphone) samsung)
+        //When iphone is processed, weightExpected are set to true.
+        //However, next token isn't a weight.
+        if (arg instanceof QrySopWeighted){
+        	weightExpected = false;
+        }
+        
+        //Set weight for nested ops. EX. #wand(0.3 #wsum(a.title a.body) 0.7 b)
+        if((currentOp instanceof QrySopWeighted) && !weightStack.isEmpty()){
+      	  ((QrySop)arg).setWeight(weightStack.pop());
+      	  weightExpected = true;
+        }
+        
 
       } else if (token.equalsIgnoreCase("#or")) {
         currentOp = new QrySopOr ();
@@ -217,23 +249,54 @@ public class QryEval {
         currentOp.setDisplayName (token);
         opStack.push(currentOp);
       } else if (token.equalsIgnoreCase("#sum")) {
-			currentOp = new QrySopSum ();
-			currentOp.setDisplayName (token);
-			opStack.push(currentOp);
+		currentOp = new QrySopSum ();
+		currentOp.setDisplayName (token);
+		opStack.push(currentOp);
+	  } else if (token.equalsIgnoreCase("#wsum")) {
+		currentOp = new QrySopWsum ();
+		currentOp.setDisplayName (token);
+		opStack.push(currentOp);
+		weightExpected = true;
+	  } else if (token.equalsIgnoreCase("#wand")) {
+		currentOp = new QrySopWand ();
+		currentOp.setDisplayName (token);
+		opStack.push(currentOp);
+		weightExpected = true;
 	  } else if (token.toLowerCase().startsWith("#near")) {
-    	  if(Pattern.matches("#near/[1-9][0-9]*", token.toLowerCase())){
-    		  String[] nearOp = token.split("/");
-			  int dist = Integer.parseInt(nearOp[1]);
-    		  currentOp = new QryIopNear(dist);
-    		  currentOp.setDisplayName (token);
-    		  opStack.push(currentOp);
-    	  } else break;
+    	if(Pattern.matches("#near/[1-9][0-9]*", token.toLowerCase())){
+    	  String[] nearOp = token.split("/");
+		  int dist = Integer.parseInt(nearOp[1]);
+		  currentOp = new QryIopNear(dist);
+    	  currentOp.setDisplayName (token);
+    	  opStack.push(currentOp);
+    	} else break;
+      }else if (token.toLowerCase().startsWith("#window")) {
+      	if(Pattern.matches("#window/[1-9][0-9]*", token.toLowerCase())){
+      	  String[] windowOp = token.split("/");
+  		  int windowSize = Integer.parseInt(windowOp[1]);
+  		  currentOp = new QryIopWindow(windowSize);
+      	  currentOp.setDisplayName (token);
+      	  opStack.push(currentOp);
+      	} else break;
       } else if (token.equalsIgnoreCase("#syn")) {
         currentOp = new QryIopSyn();
         currentOp.setDisplayName (token);
         opStack.push(currentOp);
       } else {
 
+    	  //A token can be an op, a term or a weight. A weight should come before a term, 
+    	  //set weight flag true to indicate that next token is a weight rather than a number 
+    	  //Once the weight has been push to a stack, weight flag should be set false to 
+    	  //indicate next token is a term.
+    	if(weightExpected){
+    		try{
+    			weightStack.push(Double.parseDouble(token));
+    			weightExpected = false;
+    		} catch (NumberFormatException e) {
+    			throw new IllegalArgumentException
+    			("Missing weight for " + opStack.peek().getDisplayName());
+    		}
+    	} else {
         //  Split the token into a term and a field.
 
         int delimiter = token.indexOf('.');
@@ -261,14 +324,29 @@ public class QryEval {
         //  multiple terms (e.g., "near" and "death").
 
         String t[] = tokenizeQuery(term);
-
+        
+        //Set weight for each argument of weighted ops
+        //If the term is a stopword, weight would not be used.
+        double w = Double.NaN;
+        if((currentOp instanceof QrySopWeighted) && !weightStack.isEmpty()){
+        	w = weightStack.pop();
+        	weightExpected = true;
+        }
+        
+        //#wsum( 0.7 bear 0.3 near-death) should be parsed as
+        //#wsum (0.7 bear 0.3 near 0.3 death) rather than #wsum (0.7 bear 0.15 near 0.15 death)
         for (int j = 0; j < t.length; j++) {
-
+        	
           Qry termOp = new QryIopTerm(t [j], field);
-
-          currentOp.appendArg (termOp);
+          currentOp.appendArg (termOp);     
+          
+          if(!Double.isNaN(w)){
+        	  int i = currentOp.args.size()-1;
+        	  ((QrySop)currentOp.args.get(i)).setWeight(w);   
+          }
         }
       }
+     }
     }
 
 
@@ -314,8 +392,11 @@ public class QryEval {
 	
 	if ((q_i.args.size() == 1) &&
 	    (! (q_i instanceof QrySopScore))) {
-
+	
+	  if(q_i instanceof QrySop)
+		  ((QrySop)q_i.args.get(0)).setWeight(((QrySop)q_i).getWeight());
 	  Qry q_i_0 = q_i.args.get(0);
+
 
 	  if (((q_i instanceof QrySop) && (q_i_0 instanceof QrySop)) ||
 	      ((q_i instanceof QryIop) && (q_i_0 instanceof QryIop))) {
@@ -376,10 +457,9 @@ public class QryEval {
       }
     }
 
-    //Query optimization by reduce duplicate arguments.
-    //Could be more generalized in terms of retrieval model and QrySop...
-    //Will update later.
-    if(q instanceof QrySopSum){
+    //Reduce duplicate arguments for BM25 SUM operator
+    if(model instanceof RetrievalModelBM25 && q instanceof QrySopSum){
+    	//<qry,argument_index>
     	Map<Qry,Integer> truncArgs = new HashMap<Qry,Integer>();
     	//truncate duplicate arguments of SUM and modify the responding qtf.
     	for (int i = 0; i < q.args.size(); i++){
@@ -433,17 +513,26 @@ public class QryEval {
    * @param model
    * @throws IOException Error accessing the Lucene index.
    */
-  static void processQueryFile(String queryFilePath,
-                               RetrievalModel model)
-      throws IOException {
+  static void processQueryFile(String queryFilePath, RetrievalModel model, boolean fbPreprocess) throws IOException {
 
     BufferedReader input = null;
-
+    BufferedReader expansion = null;
     try {
       String qLine = null;
-
+      String eqLine = null;
       input = new BufferedReader(new FileReader(queryFilePath));
-
+      
+      
+      Map<String, String> queryExpansions = new HashMap<String, String>();
+      if(parameters.containsKey("fb") && parameters.get("fb").equals("true") && !fbPreprocess) {
+    	  expansion = new BufferedReader(new FileReader(parameters.get("fbExpansionQueryFile")));
+    	  while ((eqLine = expansion.readLine()) != null) {
+    	        int d = eqLine.indexOf(':');
+    	        String eqid = eqLine.substring(0, d);
+    	        String equery = eqLine.substring(d + 1);
+    	        queryExpansions.put(eqid, equery);
+    	  } 
+      }
       //  Each pass of the loop processes one query.
 
       while ((qLine = input.readLine()) != null) {
@@ -458,26 +547,41 @@ public class QryEval {
 
         String qid = qLine.substring(0, d);
         String query = qLine.substring(d + 1);
-
+        
         System.out.println("Query " + qLine);
 
+        if(parameters.containsKey("fb") && parameters.get("fb").equals("true") && !fbPreprocess) {
+        	double fbOrigWeight = Double.parseDouble(parameters.get("fbOrigWeight"));
+        	String qexpansion = queryExpansions.get(qid);
+        	query = "#wand ( " + fbOrigWeight + " #and ( " + query + " ) "
+		    		 + (1.0-fbOrigWeight) + " "	+ qexpansion + " ) ";
+        	System.out.println("Expanded Query " + query);
+        }
+        
         ScoreList r = null;
 
         r = processQuery(query, model);
 
-        if (r != null) {
+        if (r != null && !fbPreprocess) {
           r.sort();
           printResults(qid, r);
           System.out.println();
+        } else if(r !=null && fbPreprocess) {
+          r.sort();
+          r.truncate(Integer.valueOf(parameters.get("fbDocs")));
+          fbDocs.put(qid, r);
         }
       }
     } catch (IOException ex) {
       ex.printStackTrace();
     } finally {
       input.close();
+      if(expansion != null)
+    	  expansion.close();
     }
   }
-
+  
+  
   /**
    * Print the query results.
    * OUTPUTS FORMAT IS:

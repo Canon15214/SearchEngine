@@ -3,6 +3,8 @@
  */
 
 import java.io.*;
+import java.util.HashMap;
+import java.util.Map;
 
 import org.apache.lucene.index.DocsAndPositionsEnum;
 import org.apache.lucene.index.Term;
@@ -40,6 +42,7 @@ public class TermVector {
   private String[] stems;	// The vocabulary. 0 indicates a stopword
   private int[] stemsFreq;	// The frequency (tf) of each entry in stems
   private Term[] terms;
+  private Map<String,Integer> dict;
 
   //  --------------- Methods ---------------------------------------
 
@@ -57,13 +60,19 @@ public class TermVector {
 
     this.luceneTerms = Idx.INDEXREADER.getTermVector(docId, fieldName);
 
+    //  If Lucene doesn't have a term vector, our TermVector is empty.
+    
+    if (this.luceneTerms == ((Terms) null)) {
+      return;
+    }
+    
     //  Allocate space for stems. The 0'th stem indicates a stopword.
 
     int stemsLength = (int) this.luceneTerms.size();
     stems = new String[stemsLength + 1];
     terms = new Term[stemsLength + 1];
     stemsFreq = new int[stemsLength + 1];
-
+    dict = new HashMap<String,Integer>();
     //  Iterate through the terms, filling in the stem and frequency
     //  information, and finding the position of the last term. The
     //  0'th term indicates a stopword, so this loop starts at i=1.
@@ -76,7 +85,7 @@ public class TermVector {
       terms[i] = new Term(fieldName, ithTerm.term().utf8ToString());
       stemsFreq[i] = (int) ithTerm.totalTermFreq();
       fieldLength += stemsFreq[i]; 
-
+      dict.put(stems[i], i);
       //  Find the position of the last (indexed) term in the
       //  document, so that the positions array can be created and
       //  populated later. The last position for each term is the
@@ -124,13 +133,31 @@ public class TermVector {
   }
 
   /**
+   *  In O(1) time get the index of stem in the stems vector, or -1 if the stems
+   *  vector does not contain the stem.  
+   *  @param stem The stem to search for.
+   *  @return the index of the stem in the stems vector, or -1 if it does not occur.
+   */
+  public int getIndexOfStem (String stem) {
+    
+   if(dict.containsKey(stem))
+	   return dict.get(stem);
+    
+    return -1;
+  }
+  
+  
+  /**
    *  Get the number of positions in this field (the length of the
    *  field). If positions are not stored, it returns 0.
    *  @return The number of positionsin this field (the field length).
    */
   public int positionsLength() {
-    return this.positions.length;
-  }
+	    if (this.fieldLength == 0)
+	      return 0;
+
+	    return this.positions.length;
+	  }
 
   /**
    *  Return the index of the stem that occurred at position i in the
@@ -176,6 +203,9 @@ public class TermVector {
    *  @return The number of unique stems in this field.
    */
   public int stemsLength() {
+    if (this.fieldLength == 0)
+      return 0;
+
     return this.stems.length;
   }
   

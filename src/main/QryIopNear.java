@@ -29,7 +29,8 @@ public class QryIopNear extends QryIop {
     this.invertedList = new InvList (this.getField());
 
     if (args.size () == 0) {
-      return;
+    	this.invertedList = ((QryIop)args.get(0)).invertedList;
+    	return;
     }
 
     //  Each pass of the loop adds 1 document to result inverted list

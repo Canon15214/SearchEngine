@@ -13,7 +13,8 @@ import java.io.*;
  *  common to all query operators that calculate document scores.
  */
 public abstract class QrySop extends Qry {
-
+	//The weight of this QrySop
+	private double weight = Double.NaN;
   /**
    *  Initialize the query operator (and its arguments), including any
    *  internal iterators.  If the query operator is of type QryIop, it
@@ -45,4 +46,13 @@ public abstract class QrySop extends Qry {
    *  @throws IOException Error accessing the Lucene index.
    */
   public abstract double getDefaultScore(RetrievalModel r, int docid) throws IOException;
+  
+  
+  public double getWeight(){
+	  return this.weight;
+  }
+  
+  public void setWeight(double weight){
+	  this.weight = weight;
+  }
 }
